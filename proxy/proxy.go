@@ -30,7 +30,7 @@ func ProxyWebServer(port int, statsChan chan info.Stats) {
 	statsChan <- info.Stats{StartTime: time.Now()}
 
 	var connCount = 0
-	var cache cache.Cache
+	cache := cache.NewCache()
 
 	for {
 		// loop infinito esperando por conexoes
