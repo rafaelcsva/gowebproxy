@@ -2,27 +2,15 @@ package proxy
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
+	"gowebproxy/cache"
 	"gowebproxy/info"
 	"gowebproxy/log"
-	"io"
+	"gowebproxy/parser"
 	"net"
 	"strconv"
 	"time"
 )
-
-type HttpRequest struct {
-	Method, URI, HttpVer string
-	Headers              map[string]string
-}
-
-type HttpResponse struct {
-	HttpVer, Reason string
-	StatusCode      int
-	Headers         map[string]string
-	Body            []byte
-}
 
 func ProxyWebServer(port int, statsChan chan info.Stats) {
 	host := ":" + strconv.Itoa(port)
@@ -42,6 +30,7 @@ func ProxyWebServer(port int, statsChan chan info.Stats) {
 	statsChan <- info.Stats{StartTime: time.Now()}
 
 	var connCount = 0
+	var cache cache.Cache
 
 	for {
 		// loop infinito esperando por conexoes
@@ -52,16 +41,16 @@ func ProxyWebServer(port int, statsChan chan info.Stats) {
 			log.PrintError(err)
 		} else {
 			// se nao houver erro, tratar conexao em outra goroutine
-			go handler(connCount, conn, statsChan)
+			go handler(connCount, conn, statsChan, &cache)
 			connCount++
 		}
 	}
 }
 
-func handler(connId int, conn net.Conn, statsChan chan info.Stats) {
+func handler(connId int, conn net.Conn, statsChan chan info.Stats, cache *cache.Cache) {
 	defer conn.Close()
 
-	statsChan <- info.Stats{CountActiveConn: 1}
+	statsChan <- info.Stats{ActiveConn: 1}
 
 	clientHostAddr := conn.RemoteAddr().String()
 
@@ -71,9 +60,6 @@ func handler(connId int, conn net.Conn, statsChan chan info.Stats) {
 	var reader = bufio.NewReader(conn)
 	var writer = bufio.NewWriter(conn)
 
-	const N = 1024
-	buf := make([]byte, N)
-
 	var serverConn net.Conn
 	var serverReader *bufio.Reader
 	var serverWriter *bufio.Writer
@@ -81,27 +67,25 @@ func handler(connId int, conn net.Conn, statsChan chan info.Stats) {
 	// loop de leitura de mensagens
 OUTERLOOP:
 	for {
-		request := HttpRequest{}
-
-		err := getRequestLine(reader, &request)
+		request, err := parser.NewHttpRequest(reader)
 
 		if err != nil {
-			log.LogInfo(connId, "Error in parse HTTP request line: %v\n", err)
+			log.LogInfo(connId, "Error in parse HTTP request: %v\n", err)
 			break OUTERLOOP
 		}
-
-		headers, err := getHeaderMap(reader)
-
-		if err != nil {
-			log.LogInfo(connId, "Error in parse HTTP request header: %v\n", err)
-			break OUTERLOOP
-		}
-
-		request.Headers = headers
 
 		host, ok := request.Headers["Host"]
 
-		if ok {
+		if ok == false {
+			log.LogInfo(connId, "Host do not exist, get URI %s\n", request.URI)
+			break OUTERLOOP
+		}
+
+		// verificar se cache para esta request existe
+		response, ok := cache.Get(request.Method, request.URI)
+
+		if ok == false {
+			// nao foi encontrado cache
 			// cria conexao com servidor
 			serverConn, err = net.Dial("tcp", host+":80")
 
@@ -113,81 +97,46 @@ OUTERLOOP:
 			serverReader = bufio.NewReader(serverConn)
 			serverWriter = bufio.NewWriter(serverConn)
 
-		} else {
-			log.LogInfo(connId, "Host do not exist, get URI %s\n", request.URI)
-			break OUTERLOOP
-		}
+			// faz requisicao a host server
+			log.LogInfo(connId, "Requesting to host %s the resource %s\n", host, request.URI)
 
-		// faz requisicao a host server
-		log.LogInfo(connId, "Requesting to host %s the resource %s\n", host, request.URI)
+			// enviando requisicao http para o host server
+			parser.WriteHttpRequest(serverWriter, &request)
 
-		// enviando corpo de requisicao http para o host server
-		line := fmt.Sprintf("%s %s %s\r\n", request.Method, request.URI, request.HttpVer)
-		serverWriter.Write([]byte(line))
-		for name, value := range request.Headers {
-			line = fmt.Sprintf("%s: %s\r\n", name, value)
-			serverWriter.Write([]byte(line))
-		}
-		serverWriter.Write([]byte("\r\n"))
-		serverWriter.Flush()
+			log.LogInfo(connId, "Processing host %s http response\n", host)
 
-		statsChan <- info.Stats{
-			LastHostsVisited:    []string{host},
-			LastResourceVisited: []string{request.URI},
-		}
+			response, err = parser.NewHttpResponse(serverReader)
 
-		log.LogInfo(connId, "Processing host %s http response\n", host)
-
-		response := HttpResponse{}
-
-		err = getResponseStatusLine(serverReader, &response)
-
-		if err != nil {
-			log.LogInfo(connId, "(Host: %s) Error on parse HTTP response status line: %v\n", host, err)
-			break OUTERLOOP
-		}
-
-		headers, err = getHeaderMap(serverReader)
-
-		if err != nil {
-			log.LogInfo(connId, "(Host: %s) Error on parse HTTP response header: %v\n", host, err)
-			break OUTERLOOP
-		}
-
-		response.Headers = headers
-
-		// lendo o corpo da resposta
-	INNERLOOP:
-		for {
-			n, err := serverReader.Read(buf)
-
-			switch err {
-			case io.EOF:
-				break INNERLOOP
-
-			case nil:
-				response.Body = append(response.Body, buf[:n]...)
-
-			default:
-				log.LogInfo(connId, "(Host: %s) Error when parsing response body: %v\n", host, err)
+			if err != nil {
+				log.LogInfo(connId, "(Host: %s) Error on parse HTTP response: %v\n", host, err)
 				break OUTERLOOP
+			}
+
+			// por enquanto, sempre fechar conexao com servidor
+			serverConn.Close()
+			serverConn = nil
+
+			// guardando na cache a resposta
+			cache.Set(request.Method, request.URI, response)
+		}
+
+		// enviando corpo de resposta http do servidor (ou cache disp.) para o cliente do proxy
+		parser.WriteHttpResponse(writer, &response)
+
+		contentLengthStr, ok := response.Headers["Content-Length"]
+		contentLength := 0
+		if ok {
+			contentLength, err = strconv.Atoi(contentLengthStr)
+			if err != nil {
+				log.LogInfo(connId, "Error: Content-Length is not numeric.\n")
+				contentLength = 0
 			}
 		}
 
-		// enviando corpo de resposta http do servidor para o cliente do proxy
-		line = fmt.Sprintf("%s %d %s\r\n", response.HttpVer, response.StatusCode, response.Reason)
-		writer.Write([]byte(line))
-		for name, value := range response.Headers {
-			line = fmt.Sprintf("%s: %s\r\n", name, value)
-			writer.Write([]byte(line))
+		statsChan <- info.Stats{
+			LastHostsVisited:    []string{host},
+			LastResourceVisited: []info.Resource{{request.URI, contentLength}},
 		}
-		writer.Write([]byte("\r\n"))
-		writer.Write(response.Body)
-		writer.Flush()
-
-		// por enquanto, sempre fechar conexao com servidor
-		serverConn.Close()
-		serverConn = nil
 
 		// decide se mantem conexao com cliente proxy
 		if connValue, ok := response.Headers["Connection"]; ok && connValue == "close" {
@@ -197,108 +146,7 @@ OUTERLOOP:
 		}
 	}
 
-	/*
-		if serverConn != nil {
-			LogInfo(connId, "Closing connection with host server %s\n", prevHost)
-			serverConn.Close()
-		}
-	*/
-
 	log.LogInfo(connId, "Closing connection with %s\n", clientHostAddr)
 
-	statsChan <- info.Stats{CountActiveConn: -1}
-}
-
-func getRequestLine(reader *bufio.Reader, request *HttpRequest) error {
-	buf, err := reader.ReadBytes('\n')
-
-	if err == nil {
-		line := string(buf)
-
-		var method, uri, httpVer string
-		n, err := fmt.Sscanf(line, "%s %s %s", &method, &uri, &httpVer)
-
-		if n != 3 {
-			err = errors.New("Mismatch status line of HTTP Request: " + line)
-		}
-
-		if err != nil {
-			return err
-		}
-
-		request.Method = method
-		request.URI = uri
-		request.HttpVer = httpVer
-	}
-
-	return err
-}
-
-func getHeaderMap(reader *bufio.Reader) (map[string]string, error) {
-	headers := make(map[string]string)
-
-LOOP:
-	for {
-		buf, err := reader.ReadBytes('\n')
-
-		switch err {
-		case io.EOF:
-			break LOOP
-
-		case nil:
-			line := string(buf)
-
-			if len(line) <= 2 {
-				break LOOP
-			}
-
-			var name, value string
-			n, err := fmt.Sscanf(line, "%s %s", &name, &value)
-
-			if n != 2 {
-				err = errors.New("Mismatch header line: " + line)
-			}
-
-			if err != nil {
-				return nil, err
-			}
-
-			name = name[:len(name)-1]
-			headers[name] = value
-
-		default:
-			return nil, err
-		}
-	}
-
-	return headers, nil
-}
-
-func getResponseStatusLine(reader *bufio.Reader, response *HttpResponse) error {
-	buf, err := reader.ReadBytes('\n')
-
-	if err == nil {
-		var httpVer, statusCodeStr, reason string
-		line := string(buf)
-		n, err := fmt.Sscanf(line, "%s %s %s", &httpVer, &statusCodeStr, &reason)
-
-		if n != 3 {
-			err = errors.New("Mismatch status line of host server response: " + line)
-		}
-
-		if err != nil {
-			return err
-		}
-
-		response.HttpVer = httpVer
-		response.StatusCode, err = strconv.Atoi(statusCodeStr)
-
-		if err != nil {
-			return err
-		}
-
-		response.Reason = reason
-	}
-
-	return err
+	statsChan <- info.Stats{ActiveConn: -1}
 }
