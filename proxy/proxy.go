@@ -118,10 +118,17 @@ OUTERLOOP:
 			serverConn.Close()
 			serverConn = nil
 
-			log.LogInfo(connId, "Storing HTTP response from %s in cache\n", host)
+			cacheControl := response.Headers["Cache-Control"]
+			switch cacheControl {
+			case "no-cache":
+			case "no-store":
+				break
 
-			// guardando na cache a resposta
-			cache.Set(request.Method, request.URI, response)
+			default:
+				log.LogInfo(connId, "Storing HTTP response from %s in cache\n", host)
+				cache.Set(request.Method, request.URI, response)
+			}
+
 		} else {
 			log.LogInfo(connId, "Resource %s FOUND in cache.\n", request.URI)
 		}
