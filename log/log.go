@@ -10,5 +10,5 @@ func PrintError(err error) {
 }
 
 func LogInfo(connId int, format string, params ...interface{}) {
-	fmt.Printf("[ID: "+strconv.Itoa(connId)+"] "+format, params...)
+	fmt.Printf("[CONN ID: "+strconv.Itoa(connId)+"] "+format, params...)
 }

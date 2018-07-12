@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"gowebproxy/info"
+	"gowebproxy/log"
 	"io"
 	"net"
 	"strconv"
-	"gowebproxy/log"
+	"time"
 )
 
 type HttpRequest struct {
@@ -22,7 +24,7 @@ type HttpResponse struct {
 	Body            []byte
 }
 
-func ProxyWebServer(port int) {
+func ProxyWebServer(port int, statsChan chan info.Stats) {
 	host := ":" + strconv.Itoa(port)
 	// cria socket tcp na porta port
 	listen, err := net.Listen("tcp", host)
@@ -36,6 +38,9 @@ func ProxyWebServer(port int) {
 
 	fmt.Printf("Web Proxy listening in port %d\n", port)
 
+	// enviando informação de inicio de execução
+	statsChan <- info.Stats{StartTime: time.Now()}
+
 	var connCount = 0
 
 	for {
@@ -47,14 +52,16 @@ func ProxyWebServer(port int) {
 			log.PrintError(err)
 		} else {
 			// se nao houver erro, tratar conexao em outra goroutine
-			go handler(connCount, conn)
+			go handler(connCount, conn, statsChan)
 			connCount++
 		}
 	}
 }
 
-func handler(connId int, conn net.Conn) {
+func handler(connId int, conn net.Conn, statsChan chan info.Stats) {
 	defer conn.Close()
+
+	statsChan <- info.Stats{CountActiveConn: 1}
 
 	clientHostAddr := conn.RemoteAddr().String()
 
@@ -106,45 +113,6 @@ OUTERLOOP:
 			serverReader = bufio.NewReader(serverConn)
 			serverWriter = bufio.NewWriter(serverConn)
 
-			/*
-				if serverConn != nil && prevHost == host {
-					// verificar se a conexao com o servidor ainda esta ativa
-					one := []byte{}
-					serverConn.SetReadDeadline(time.Now())
-
-					if _, err := serverConn.Read(one); err == io.EOF {
-						LogInfo(connId, "Connection with host server is down, create other connection.")
-						serverConn.Close()
-						serverConn = nil // nil para que abaixo seja criada a conexao nova
-					} else {
-						LogInfo(connId, "Connection is up")
-						var zero time.Time
-						serverConn.SetReadDeadline(zero)
-					}
-				}
-
-				if serverConn == nil || prevHost != host {
-					if serverConn != nil {
-						serverConn.Close()
-					}
-
-					serverConn, err = net.Dial("tcp", host+":80")
-
-					if err != nil {
-						LogInfo(connId, "Error when trying to connect to host server %s: %v\n", host, err)
-						break OUTERLOOP
-					}
-
-					prevHost = host
-
-					serverReader = bufio.NewReader(serverConn)
-					serverWriter = bufio.NewWriter(serverConn)
-
-					LogInfo(connId, "New instance of connection\n")
-				} else {
-					LogInfo(connId, "Same instance of connection\n")
-				}
-			*/
 		} else {
 			log.LogInfo(connId, "Host do not exist, get URI %s\n", request.URI)
 			break OUTERLOOP
@@ -163,6 +131,11 @@ OUTERLOOP:
 		serverWriter.Write([]byte("\r\n"))
 		serverWriter.Flush()
 
+		statsChan <- info.Stats{
+			LastHostsVisited:    []string{host},
+			LastResourceVisited: []string{request.URI},
+		}
+
 		log.LogInfo(connId, "Processing host %s http response\n", host)
 
 		response := HttpResponse{}
@@ -170,7 +143,7 @@ OUTERLOOP:
 		err = getResponseStatusLine(serverReader, &response)
 
 		if err != nil {
-			log.LogInfo(connId, "(Host: %s) Error on parse response status line: %v\n", host, err)
+			log.LogInfo(connId, "(Host: %s) Error on parse HTTP response status line: %v\n", host, err)
 			break OUTERLOOP
 		}
 
@@ -232,6 +205,8 @@ OUTERLOOP:
 	*/
 
 	log.LogInfo(connId, "Closing connection with %s\n", clientHostAddr)
+
+	statsChan <- info.Stats{CountActiveConn: -1}
 }
 
 func getRequestLine(reader *bufio.Reader, request *HttpRequest) error {
