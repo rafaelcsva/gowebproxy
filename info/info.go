@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"gowebproxy/log"
 	"sort"
+	"bufio"
 )
 
 type Resource struct{
@@ -39,6 +40,7 @@ type List struct{
 }
 
 var memory List
+const ItensToPrint = 5
 
 func handler(conn net.Conn, statChan chan Stats){
 	defer conn.Close()
@@ -90,6 +92,65 @@ func handler(conn net.Conn, statChan chan Stats){
 	sort.Slice(resourceStatisticSize, func(i, j int) bool{//Coloco os objetos de maior tamanho primeiro
 		return resourceStatisticSize[i].Size > resourceStatisticSize[j].Size;
 	})
+
+	var writer = bufio.NewWriter(conn)
+
+	var line = fmt.Sprintf("Números de itens (%d)\n\n", ItensToPrint)
+	writer.Write([]byte(line))
+
+	var printed = 0
+
+	line = fmt.Sprintf("[Nome do Host]\t[Número de Acessos]\n")
+	writer.Write([]byte(line))
+
+	for _, v := range hostsStatistic{
+		if printed == ItensToPrint {
+			break
+		}
+
+		line = fmt.Sprintf("%s\t%d\n", v.Host, v.Count)
+		writer.Write([]byte(line))
+
+		printed += 1
+	}
+
+	line = fmt.Sprintf("----------------------\n")
+	writer.Write([]byte(line))
+
+	printed = 0
+
+	line = fmt.Sprintf("[Nome do Objeto]\t[Número de Acessos]\n")
+	writer.Write([]byte(line))
+
+	for _, v := range resourceStatistic{
+		if printed == ItensToPrint{
+			break
+		}
+
+		line = fmt.Sprintf("%s\t%d\n", v.Name, v.Count)
+		writer.Write([]byte(line))
+
+		printed += 1
+	}
+
+	line = fmt.Sprintf("----------------------\n")
+	writer.Write([]byte(line))
+
+	printed = 0
+
+	line = fmt.Sprintf("[Nome do Objeto]\t[Tamanho]\n")
+	writer.Write([]byte(line))
+
+	for _, v := range resourceStatisticSize{
+		if printed == ItensToPrint{
+			break
+		}
+			
+		line = fmt.Sprintf("%s\t%d\n", v.Name, v.Size)
+		writer.Write([]byte(line))
+
+		printed += 1
+	}
 }
 
 func ListenProxy(statChan chan Stats){
