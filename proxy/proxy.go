@@ -85,6 +85,8 @@ OUTERLOOP:
 		response, ok := cache.Get(request.Method, request.URI)
 
 		if ok == false {
+			log.LogInfo(connId, "Resource %s not found in cache.\n", request.URI)
+
 			// nao foi encontrado cache
 			// cria conexao com servidor
 			serverConn, err = net.Dial("tcp", host+":80")
@@ -116,8 +118,12 @@ OUTERLOOP:
 			serverConn.Close()
 			serverConn = nil
 
+			log.LogInfo(connId, "Storing HTTP response from %s in cache\n", host)
+
 			// guardando na cache a resposta
 			cache.Set(request.Method, request.URI, response)
+		} else {
+			log.LogInfo(connId, "Resource %s FOUND in cache.\n", request.URI)
 		}
 
 		// enviando corpo de resposta http do servidor (ou cache disp.) para o cliente do proxy
