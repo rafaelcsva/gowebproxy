@@ -52,7 +52,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 	mutex.Lock()
 
 	var writer = bufio.NewWriter(conn)
-	var line = fmt.Sprintf("Tempo de Conexão Ativo %s\n", memory.StartTime.Sub(time.Now()).String())
+	var line = fmt.Sprintf("Tempo de Conexão Ativo %s\n", time.Now().Sub(memory.StartTime).String)
 	writer.Write([]byte(line))
 
 	line = fmt.Sprintf("Número de Conexões ativas %d\n", memory.CountActiveConn)
@@ -121,7 +121,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 			break
 		}
 
-		line = fmt.Sprintf("%d\t\t%s\n",v.Count, v.Host)
+		line = fmt.Sprintf("%9d %s\n",v.Count, v.Host)
 		writer.Write([]byte(line))
 
 		printed += 1
@@ -140,7 +140,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 			break
 		}
 
-		line = fmt.Sprintf("%d\t\t%s\n", v.Count, v.Name)
+		line = fmt.Sprintf("%9d %s\n", v.Count, v.Name)
 		writer.Write([]byte(line))
 
 		printed += 1
@@ -159,7 +159,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 			break
 		}
 
-		line = fmt.Sprintf("%d\t\t\t%s\n", v.Size, v.Name)
+		line = fmt.Sprintf("%9d %s\n", v.Size, v.Name)
 		writer.Write([]byte(line))
 
 		printed += 1
