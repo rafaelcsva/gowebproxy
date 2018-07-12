@@ -108,12 +108,12 @@ func handler(conn net.Conn, statChan chan Stats) {
 		return resourceStatisticSize[i].Size > resourceStatisticSize[j].Size
 	})
 
-	line = fmt.Sprintf("Números de itens (%d)\n\n", ItensToPrint)
+	line = fmt.Sprintf("Números máximo de itens (%d)\n\n", ItensToPrint)
 	writer.Write([]byte(line))
 
 	var printed = 0
 
-	line = fmt.Sprintf("[Nome do Host]\t[Número de Acessos]\n")
+	line = fmt.Sprintf("[Acessos] [Nome do Host]\n")
 	writer.Write([]byte(line))
 
 	for _, v := range hostsStatistic {
@@ -121,7 +121,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 			break
 		}
 
-		line = fmt.Sprintf("%s\t%d\n", v.Host, v.Count)
+		line = fmt.Sprintf("%d\t\t%s\n",v.Count, v.Host)
 		writer.Write([]byte(line))
 
 		printed += 1
@@ -132,7 +132,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 
 	printed = 0
 
-	line = fmt.Sprintf("[Nome do Objeto]\t[Número de Acessos]\n")
+	line = fmt.Sprintf("[Acessos] [Nome do Objeto]\n")
 	writer.Write([]byte(line))
 
 	for _, v := range resourceStatistic {
@@ -140,7 +140,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 			break
 		}
 
-		line = fmt.Sprintf("%s\t%d\n", v.Name, v.Count)
+		line = fmt.Sprintf("%d\t\t%s\n", v.Count, v.Name)
 		writer.Write([]byte(line))
 
 		printed += 1
@@ -151,7 +151,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 
 	printed = 0
 
-	line = fmt.Sprintf("[Nome do Objeto]\t[Tamanho]\n")
+	line = fmt.Sprintf("[Tamanho (b)] [Nome do Objeto]\n")
 	writer.Write([]byte(line))
 
 	for _, v := range resourceStatisticSize {
@@ -159,7 +159,7 @@ func handler(conn net.Conn, statChan chan Stats) {
 			break
 		}
 
-		line = fmt.Sprintf("%s\t%d\n", v.Name, v.Size)
+		line = fmt.Sprintf("%d\t\t\t%s\n", v.Size, v.Name)
 		writer.Write([]byte(line))
 
 		printed += 1
