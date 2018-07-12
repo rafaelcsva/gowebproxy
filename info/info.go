@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"gowebproxy/log"
 	"sort"
+	"bufio"
+	"sync"
 )
 
 type Resource struct{
@@ -39,10 +41,22 @@ type List struct{
 }
 
 var memory List
+const ItensToPrint = 5
 
 func handler(conn net.Conn, statChan chan Stats){
 	defer conn.Close()
 
+	var mutex = &sync.Mutex{}//Mutex para evitar que outras goroutines acessem simultaneamente o array memory
+	
+	mutex.Lock()
+
+	var writer = bufio.NewWriter(conn)
+	var line = fmt.Sprintf("Tempo de Conexão Ativo %s\n", memory.StartTime.Sub(time.Now()).String())
+	writer.Write([]byte(line))
+
+	line = fmt.Sprintf("Número de Conexões ativas %d\n", memory.CountActiveConn)
+	writer.Write([]byte(line))
+	
 	//Map para descobrir quantas vezes um host foi visitado
 	mpHost := make(map[string]int)
 	//Iterando para obter quantas vezes cada host foi visitado
@@ -65,6 +79,8 @@ func handler(conn net.Conn, statChan chan Stats){
 		mpResourceSize[resource.Name] = resource.Size
 		mpResource[resource.Name] += 1
 	}
+
+	mutex.Unlock() //A partir desse momento não uso mais a variável memory
 
 	//Array para guardar para cada objeto requisitado seu tamanho
 	var resourceStatisticSize []Resource
@@ -90,6 +106,63 @@ func handler(conn net.Conn, statChan chan Stats){
 	sort.Slice(resourceStatisticSize, func(i, j int) bool{//Coloco os objetos de maior tamanho primeiro
 		return resourceStatisticSize[i].Size > resourceStatisticSize[j].Size;
 	})
+
+	line = fmt.Sprintf("Números de itens (%d)\n\n", ItensToPrint)
+	writer.Write([]byte(line))
+
+	var printed = 0
+
+	line = fmt.Sprintf("[Nome do Host]\t[Número de Acessos]\n")
+	writer.Write([]byte(line))
+
+	for _, v := range hostsStatistic{
+		if printed == ItensToPrint {
+			break
+		}
+
+		line = fmt.Sprintf("%s\t%d\n", v.Host, v.Count)
+		writer.Write([]byte(line))
+
+		printed += 1
+	}
+
+	line = fmt.Sprintf("----------------------\n")
+	writer.Write([]byte(line))
+
+	printed = 0
+
+	line = fmt.Sprintf("[Nome do Objeto]\t[Número de Acessos]\n")
+	writer.Write([]byte(line))
+
+	for _, v := range resourceStatistic{
+		if printed == ItensToPrint{
+			break
+		}
+
+		line = fmt.Sprintf("%s\t%d\n", v.Name, v.Count)
+		writer.Write([]byte(line))
+
+		printed += 1
+	}
+
+	line = fmt.Sprintf("----------------------\n")
+	writer.Write([]byte(line))
+
+	printed = 0
+
+	line = fmt.Sprintf("[Nome do Objeto]\t[Tamanho]\n")
+	writer.Write([]byte(line))
+
+	for _, v := range resourceStatisticSize{
+		if printed == ItensToPrint{
+			break
+		}
+			
+		line = fmt.Sprintf("%s\t%d\n", v.Name, v.Size)
+		writer.Write([]byte(line))
+
+		printed += 1
+	}
 }
 
 func ListenProxy(statChan chan Stats){
@@ -97,6 +170,9 @@ func ListenProxy(statChan chan Stats){
 		// Espera por uma resposta do servidor proxy
 		st := <-statChan
 
+		var mutex = &sync.Mutex{}//Mutex para evitar que outras goroutines acessem simultaneamente o array memory
+
+		mutex.Lock()
 		// Atualizo o número de conexões ativas
 		memory.CountActiveConn += st.ActiveConn
 
@@ -110,6 +186,7 @@ func ListenProxy(statChan chan Stats){
 		
 		// Adiciono os últimos objetos requisitados na lista
 		memory.ResourceVisited = append(memory.ResourceVisited, st.LastResourceVisited...)
+		mutex.Unlock()
 	}
 }
 
