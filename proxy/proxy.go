@@ -9,8 +9,57 @@ import (
 	"gowebproxy/parser"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
+
+func isCacheable(control string) bool {
+	if strings.Contains(control, "no-store") ||
+		strings.Contains(control, "private") ||
+		strings.Contains(control, "no-cache") ||
+		strings.Contains(control, "must-revalidate") {
+		return false
+	}
+
+	return true
+}
+
+func getExpiresTime(response *parser.HttpResponse) time.Time {
+	if value, ok := response.Headers["Cache-Control"]; ok {
+		if strings.Contains(value, "max-age") {
+			ind := strings.Index(value, "=")
+			str := value[ind+1:]
+
+			if str[len(str)-1] == ',' {
+				str = str[:len(str)-1]
+			}
+
+			seconds, err := strconv.Atoi(str)
+
+			if err == nil {
+				return time.Now().Add(time.Second * time.Duration(seconds))
+			}
+		}
+	}
+
+	if value, ok := response.Headers["Expires"]; ok {
+		t, err := time.Parse("Wed, 21 Oct 2015 07:28:00 GMT", value)
+
+		if err == nil {
+			return t
+		}
+	}
+
+	return time.Now()
+}
+
+func isExpired(response *parser.HttpResponse) bool {
+	expiresTime := response.ExpiresTime
+	now := time.Now()
+
+	// expiresTime < now
+	return expiresTime.Before(now)
+}
 
 func ProxyWebServer(port int, statsChan chan info.Stats) {
 	host := ":" + strconv.Itoa(port)
@@ -81,10 +130,16 @@ OUTERLOOP:
 			break OUTERLOOP
 		}
 
+		cacheControl := request.Headers["Cache-Control"]
+		log.LogInfo(connId, "Client request Cache-Control: %s\n", cacheControl)
+
 		// verificar se cache para esta request existe
 		response, ok := cache.Get(request.Method, request.URI)
 
-		if ok == false {
+		// se nao for autorizado cache pelo cliente ou
+		// nao existe cache ou
+		// o cache foi expirado
+		if isCacheable(cacheControl) == false || ok == false || isExpired(&response) {
 			log.LogInfo(connId, "Resource %s not found in cache.\n", request.URI)
 
 			// nao foi encontrado cache
@@ -118,14 +173,12 @@ OUTERLOOP:
 			serverConn.Close()
 			serverConn = nil
 
-			cacheControl := response.Headers["Cache-Control"]
-			switch cacheControl {
-			case "no-cache":
-			case "no-store":
-				break
+			serverCacheControl := response.Headers["Cache-Control"]
+			log.LogInfo(connId, "Server response Cache-Control: %s\n", serverCacheControl)
 
-			default:
-				log.LogInfo(connId, "Storing HTTP response from %s in cache\n", host)
+			if isCacheable(cacheControl) && isCacheable(serverCacheControl) {
+				response.ExpiresTime = getExpiresTime(&response)
+				log.LogInfo(connId, "Storing HTTP response from %s in cache with expires time %v\n", host, response.ExpiresTime)
 				cache.Set(request.Method, request.URI, response)
 			}
 

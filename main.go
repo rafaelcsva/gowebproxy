@@ -1,3 +1,9 @@
+/*
+Laboratorio 6 - Web Proxy com Cache
+Leandro Alves Vianna
+Rafael de Castro Silva
+*/
+
 package main
 
 import "fmt"

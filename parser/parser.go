@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 )
 
 type HttpRequest struct {
@@ -18,6 +19,7 @@ type HttpResponse struct {
 	StatusCode      int
 	Headers         map[string]string
 	Body            []byte
+	ExpiresTime     time.Time
 }
 
 func NewHttpRequest(reader *bufio.Reader) (HttpRequest, error) {
