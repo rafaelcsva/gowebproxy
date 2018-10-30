@@ -3,7 +3,7 @@ package info
 import (
 	"bufio"
 	"fmt"
-	"gowebproxy/log"
+	"log"
 	"net"
 	"sort"
 	"strconv"
@@ -200,7 +200,7 @@ func InfoServer(port int, statChan chan Stats) {
 	listen, err := net.Listen("tcp", host)
 
 	if err != nil {
-		log.PrintError(err)
+		log.Fatalln(err)
 		return
 	}
 
@@ -214,7 +214,7 @@ func InfoServer(port int, statChan chan Stats) {
 
 		if err != nil {
 			// se ocorrer um erro, imprimir e esperar por novas conexoes
-			log.PrintError(err)
+			log.Fatalln(err)
 		} else {
 			// se nao houver erro, tratar conexao em outra goroutine
 			go handler(conn, statChan)
