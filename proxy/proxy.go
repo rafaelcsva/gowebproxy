@@ -2,10 +2,9 @@ package proxy
 
 import (
 	"bufio"
-	"fmt"
-	"gowebproxy/cache"
-	"gowebproxy/info"
-	"gowebproxy/parser"
+	"github.com/leandrovianna/gowebproxy/cache"
+	"github.com/leandrovianna/gowebproxy/info"
+	"github.com/leandrovianna/gowebproxy/parser"
 	"log"
 	"net"
 	"strconv"
@@ -14,7 +13,7 @@ import (
 )
 
 func logConnInfo(connId int, format string, params ...interface{}) {
-	fmt.Printf("[CONN ID: "+strconv.Itoa(connId)+"] "+format, params...)
+	log.Printf("[CONN ID: "+strconv.Itoa(connId)+"] "+format, params...)
 }
 
 func isCacheable(control string) bool {
@@ -77,7 +76,7 @@ func ProxyWebServer(port int, statsChan chan info.Stats) {
 
 	defer listen.Close()
 
-	fmt.Printf("Web Proxy listening in port %d\n", port)
+	log.Printf("Web Proxy listening in port %d\n", port)
 
 	// enviando informação de inicio de execução
 	statsChan <- info.Stats{StartTime: time.Now()}

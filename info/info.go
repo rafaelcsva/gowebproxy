@@ -206,7 +206,7 @@ func InfoServer(port int, statChan chan Stats) {
 
 	defer listen.Close()
 
-	fmt.Printf("Information Server listening in port %d\n", port)
+	log.Printf("Information Server listening in port %d\n", port)
 
 	for {
 		// loop infinito esperando por conexoes

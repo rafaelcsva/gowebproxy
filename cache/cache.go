@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"gowebproxy/parser"
+	"github.com/leandrovianna/gowebproxy/parser"
 	"sync"
 )
 

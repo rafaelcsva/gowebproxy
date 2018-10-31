@@ -9,8 +9,8 @@ package main
 import "fmt"
 import "os"
 import "os/signal"
-import "gowebproxy/info"
-import "gowebproxy/proxy"
+import "github.com/leandrovianna/gowebproxy/info"
+import "github.com/leandrovianna/gowebproxy/proxy"
 
 func main() {
 	const webProxyPort = 54321
