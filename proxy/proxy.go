@@ -2,16 +2,19 @@ package proxy
 
 import (
 	"bufio"
-	"fmt"
-	"gowebproxy/cache"
-	"gowebproxy/info"
-	"gowebproxy/log"
-	"gowebproxy/parser"
+	"github.com/leandrovianna/gowebproxy/cache"
+	"github.com/leandrovianna/gowebproxy/info"
+	"github.com/leandrovianna/gowebproxy/parser"
+	"log"
 	"net"
 	"strconv"
 	"strings"
 	"time"
 )
+
+func logConnInfo(connId int, format string, params ...interface{}) {
+	log.Printf("[CONN ID: "+strconv.Itoa(connId)+"] "+format, params...)
+}
 
 func isCacheable(control string) bool {
 	if strings.Contains(control, "no-store") ||
@@ -67,13 +70,13 @@ func ProxyWebServer(port int, statsChan chan info.Stats) {
 	listen, err := net.Listen("tcp", host)
 
 	if err != nil {
-		log.PrintError(err)
+		log.Fatal(err)
 		return
 	}
 
 	defer listen.Close()
 
-	fmt.Printf("Web Proxy listening in port %d\n", port)
+	log.Printf("Web Proxy listening in port %d\n", port)
 
 	// enviando informação de inicio de execução
 	statsChan <- info.Stats{StartTime: time.Now()}
@@ -87,7 +90,7 @@ func ProxyWebServer(port int, statsChan chan info.Stats) {
 
 		if err != nil {
 			// se ocorrer um erro, imprimir e esperar por novas conexoes
-			log.PrintError(err)
+			log.Println(err)
 		} else {
 			// se nao houver erro, tratar conexao em outra goroutine
 			go handler(connCount, conn, statsChan, &cache)
@@ -103,7 +106,7 @@ func handler(connId int, conn net.Conn, statsChan chan info.Stats, cache *cache.
 
 	clientHostAddr := conn.RemoteAddr().String()
 
-	log.LogInfo(connId, "Connection from %s\n", clientHostAddr)
+	logConnInfo(connId, "Connection from %s\n", clientHostAddr)
 
 	// criando leitor de mensagens da conexao
 	var reader = bufio.NewReader(conn)
@@ -119,19 +122,19 @@ OUTERLOOP:
 		request, err := parser.NewHttpRequest(reader)
 
 		if err != nil {
-			log.LogInfo(connId, "Error in parse HTTP request: %v\n", err)
+			logConnInfo(connId, "Error in parse HTTP request: %v\n", err)
 			break OUTERLOOP
 		}
 
 		host, ok := request.Headers["Host"]
 
 		if ok == false {
-			log.LogInfo(connId, "Host do not exist, get URI %s\n", request.URI)
+			logConnInfo(connId, "Host do not exist, get URI %s\n", request.URI)
 			break OUTERLOOP
 		}
 
 		cacheControl := request.Headers["Cache-Control"]
-		log.LogInfo(connId, "Client request Cache-Control: %s\n", cacheControl)
+		logConnInfo(connId, "Client request Cache-Control: %s\n", cacheControl)
 
 		// verificar se cache para esta request existe
 		response, ok := cache.Get(request.Method, request.URI)
@@ -140,14 +143,14 @@ OUTERLOOP:
 		// nao existe cache ou
 		// o cache foi expirado
 		if isCacheable(cacheControl) == false || ok == false || isExpired(&response) {
-			log.LogInfo(connId, "Resource %s not found in cache.\n", request.URI)
+			logConnInfo(connId, "Resource %s not found in cache.\n", request.URI)
 
 			// nao foi encontrado cache
 			// cria conexao com servidor
 			serverConn, err = net.Dial("tcp", host+":80")
 
 			if err != nil {
-				log.LogInfo(connId, "Error when trying to connect to host server %s: %v\n", host, err)
+				logConnInfo(connId, "Error when trying to connect to host server %s: %v\n", host, err)
 				break OUTERLOOP
 			}
 
@@ -155,17 +158,17 @@ OUTERLOOP:
 			serverWriter = bufio.NewWriter(serverConn)
 
 			// faz requisicao a host server
-			log.LogInfo(connId, "Requesting to host %s the resource %s\n", host, request.URI)
+			logConnInfo(connId, "Requesting to host %s the resource %s\n", host, request.URI)
 
 			// enviando requisicao http para o host server
 			parser.WriteHttpRequest(serverWriter, &request)
 
-			log.LogInfo(connId, "Processing host %s http response\n", host)
+			logConnInfo(connId, "Processing host %s http response\n", host)
 
 			response, err = parser.NewHttpResponse(serverReader)
 
 			if err != nil {
-				log.LogInfo(connId, "(Host: %s) Error on parse HTTP response: %v\n", host, err)
+				logConnInfo(connId, "(Host: %s) Error on parse HTTP response: %v\n", host, err)
 				break OUTERLOOP
 			}
 
@@ -174,16 +177,16 @@ OUTERLOOP:
 			serverConn = nil
 
 			serverCacheControl := response.Headers["Cache-Control"]
-			log.LogInfo(connId, "Server response Cache-Control: %s\n", serverCacheControl)
+			logConnInfo(connId, "Server response Cache-Control: %s\n", serverCacheControl)
 
 			if isCacheable(cacheControl) && isCacheable(serverCacheControl) {
 				response.ExpiresTime = getExpiresTime(&response)
-				log.LogInfo(connId, "Storing HTTP response from %s in cache with expires time %v\n", host, response.ExpiresTime)
+				logConnInfo(connId, "Storing HTTP response from %s in cache with expires time %v\n", host, response.ExpiresTime)
 				cache.Set(request.Method, request.URI, response)
 			}
 
 		} else {
-			log.LogInfo(connId, "Resource %s FOUND in cache.\n", request.URI)
+			logConnInfo(connId, "Resource %s FOUND in cache.\n", request.URI)
 		}
 
 		// enviando corpo de resposta http do servidor (ou cache disp.) para o cliente do proxy
@@ -194,7 +197,7 @@ OUTERLOOP:
 		if ok {
 			contentLength, err = strconv.Atoi(contentLengthStr)
 			if err != nil {
-				log.LogInfo(connId, "Error: Content-Length is not numeric.\n")
+				logConnInfo(connId, "Error: Content-Length is not numeric.\n")
 				contentLength = 0
 			}
 		}
@@ -208,11 +211,11 @@ OUTERLOOP:
 		if connValue, ok := response.Headers["Connection"]; ok && connValue == "close" {
 			break OUTERLOOP
 		} else {
-			log.LogInfo(connId, "Keeping connection with %s\n", clientHostAddr)
+			logConnInfo(connId, "Keeping connection with %s\n", clientHostAddr)
 		}
 	}
 
-	log.LogInfo(connId, "Closing connection with %s\n", clientHostAddr)
+	logConnInfo(connId, "Closing connection with %s\n", clientHostAddr)
 
 	statsChan <- info.Stats{ActiveConn: -1}
 }
